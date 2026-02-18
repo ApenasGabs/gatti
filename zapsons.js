@@ -1,20 +1,40 @@
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
+} from "@whiskeysockets/baileys";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
-import pkg from "whatsapp-web.js";
-const { Client, LocalAuth } = pkg;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth_zapsons");
 
 // Chat ID do grupo onde vai responder
 const WPP_CHAT_ID = "120363132077830172@g.us";
 
 let wppClient = null;
+let wppReady = false;
 
-async function buscarPiada() {
+function extractMessageText(message) {
+  return (
+    message?.conversation ??
+    message?.extendedTextMessage?.text ??
+    message?.imageMessage?.caption ??
+    message?.videoMessage?.caption ??
+    ""
+  );
+}
+
+async function buscarMotivoNao() {
   try {
-    const response = await fetch("https://naas.isalman.dev/no");
+    const response = await fetch("https://naas.daniilmira.com/no");
     const data = await response.json();
-    return data.joke || "Não consegui buscar uma piada 😅";
+    return data.reason || "Não tenho um motivo específico agora.";
   } catch (err) {
-    console.error("Erro ao buscar piada:", err.message);
-    return "Erro ao buscar piada 😅";
+    console.error("Erro ao buscar motivo:", err.message);
+    return "Não consegui obter o motivo agora.";
   }
 }
 
@@ -36,59 +56,97 @@ async function traduzirParaPortugues(texto) {
 }
 
 async function initWpp() {
-  wppClient = new Client({
-    authStrategy: new LocalAuth(),
+  const { state, saveCreds } = await useMultiFileAuthState(BAILEYS_AUTH_DIR);
+  const { version } = await fetchLatestBaileysVersion();
+
+  wppClient = makeWASocket({
+    auth: state,
+    version,
+    printQRInTerminal: false,
+    markOnlineOnConnect: false,
+    browser: ["Zapsons Bot", "Chrome", "1.0.0"],
   });
 
-  wppClient.on("qr", (qr) => {
-    console.log("\n📱 Escaneie o QR code com seu WhatsApp:");
-    qrcode.generate(qr, { small: true });
-  });
+  wppClient.ev.on("creds.update", saveCreds);
 
-  wppClient.on("ready", () => {
-    console.log("\n✅ WhatsApp conectado! Aguardando mensagens...\n");
-  });
+  wppClient.ev.on("connection.update", (update) => {
+    const { connection, qr, lastDisconnect } = update;
 
-  wppClient.on("disconnected", () => {
-    console.log("⚠️ WPP desconectado, reconectando...");
-    setTimeout(initWpp, 5000);
-  });
+    if (qr) {
+      console.log("\n📱 Escaneie o QR code com seu WhatsApp:");
+      qrcode.generate(qr, { small: true });
+    }
 
-  // Listener para mensagens recebidas
-  wppClient.on("message", async (msg) => {
-    const chat = await msg.getChat();
+    if (connection === "open") {
+      wppReady = true;
+      console.log("\n✅ WhatsApp conectado! Aguardando mensagens...\n");
+    }
 
-    // Log das infos do grupo/chat
-    console.log("\n📨 Mensagem recebida:");
-    console.log(`   De: ${msg.from}`);
-    console.log(`   Remetente: ${msg.author || msg.from}`);
-    console.log(`   Chat ID: ${chat.id._serialized}`);
-    console.log(`   Chat Nome: ${chat.name}`);
-    console.log(`   É grupo: ${chat.isGroup}`);
-    console.log(`   Conteúdo: ${msg.body}`);
-    console.log(`   Horário: ${new Date().toLocaleString("pt-BR")}`);
+    if (connection === "close") {
+      wppReady = false;
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      console.log("⚠️ WPP desconectado, reconectando...");
 
-    // Responde apenas se for o grupo configurado
-    if (chat.id._serialized === WPP_CHAT_ID) {
-      try {
-        console.log("🤖 Buscando piada...");
-        const piada = await buscarPiada();
-        console.log(`📝 Piada original: ${piada}`);
-
-        const piadaTraduzida = await traduzirParaPortugues(piada);
-        console.log(`🇧🇷 Piada traduzida: ${piadaTraduzida}`);
-
-        await msg.reply(piadaTraduzida);
-        console.log("✅ Resposta enviada\n");
-      } catch (err) {
-        console.error("❌ Erro ao responder:", err.message, "\n");
+      if (shouldReconnect) {
+        setTimeout(initWpp, 5000);
+      } else {
+        console.log("Sessão desconectada (logout). Escaneie o QR novamente.");
       }
-    } else {
-      console.log("⏭️  Ignoring message (group not configured)\n");
     }
   });
 
-  await wppClient.initialize();
+  // Listener para mensagens recebidas
+  wppClient.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return;
+
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue;
+
+      const chatId = msg.key.remoteJid ?? "";
+      const remetente = msg.key.participant || chatId;
+      const body = extractMessageText(msg.message);
+
+      // Log das infos do grupo/chat
+      console.log("\n📨 Mensagem recebida:");
+      console.log(`   De: ${chatId}`);
+      console.log(`   Remetente: ${remetente}`);
+      console.log(`   Chat ID: ${chatId}`);
+      console.log(`   É grupo: ${chatId.endsWith("@g.us")}`);
+      console.log(`   Conteúdo: ${body}`);
+      console.log(`   Horário: ${new Date().toLocaleString("pt-BR")}`);
+
+      // Responde apenas se for o grupo configurado
+      if (chatId === WPP_CHAT_ID) {
+        try {
+          if (!wppReady) {
+            console.log("⏳ Cliente ainda não está pronto para responder.");
+            continue;
+          }
+
+          console.log("🤖 Buscando motivo...");
+          const motivoOriginal = await buscarMotivoNao();
+          console.log(`📝 Motivo original: ${motivoOriginal}`);
+
+          const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
+          console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
+
+          const resposta = `Não posso responder.\nMotivo: ${motivoTraduzido}`;
+
+          await wppClient.sendMessage(
+            chatId,
+            { text: resposta },
+            { quoted: msg },
+          );
+          console.log("✅ Resposta enviada\n");
+        } catch (err) {
+          console.error("❌ Erro ao responder:", err.message, "\n");
+        }
+      } else {
+        console.log("⏭️  Ignoring message (group not configured)\n");
+      }
+    }
+  });
 }
 
 async function main() {
