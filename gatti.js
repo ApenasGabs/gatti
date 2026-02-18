@@ -35,6 +35,8 @@ async function initWpp() {
         "--no-first-run",
         "--no-zygote",
         "--disable-gpu",
+        "--disable-web-security",
+        "--disable-features=VizDisplayCompositor",
       ],
     },
   });
@@ -50,7 +52,7 @@ async function initWpp() {
 
   wppClient.on("disconnected", () => {
     console.log("WPP desconectado, reconectando...");
-    setTimeout(initWpp, 5000);
+    setTimeout(initWpp, 3000);
   });
 
   // Listener para detectar respostas no grupo
