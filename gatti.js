@@ -1,10 +1,13 @@
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
+} from "@whiskeysockets/baileys";
 import * as cheerio from "cheerio";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
-import pkg from "whatsapp-web.js";
-const { Client, LocalAuth } = pkg;
 
 const TARGET_URL = "https://concursos.objetivas.com.br/informacoes/2568/";
 const __filename = fileURLToPath(import.meta.url);
@@ -14,63 +17,87 @@ const SNAPSHOT_PATH = path.join(
   "data",
   "gatti-publicacoes.snapshot.json",
 );
+const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth");
 
 // CONFIG WPP: Chat ID do grupo para notificações
 const WPP_CHAT_ID = "120363132077830172@g.us"; // Grupo: Eu você e o bot
 
 let wppClient = null;
+let wppReady = false;
 let ultimasNotificacoes = new Map(); // Rastreia notificações enviadas
 let aguardandoResposta = false; // Flag para pausar reenvios
 
+function extractMessageText(message) {
+  return (
+    message?.conversation ??
+    message?.extendedTextMessage?.text ??
+    message?.imageMessage?.caption ??
+    message?.videoMessage?.caption ??
+    ""
+  );
+}
+
 async function initWpp() {
-  wppClient = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor",
-      ],
-    },
+  const { state, saveCreds } = await useMultiFileAuthState(BAILEYS_AUTH_DIR);
+  const { version } = await fetchLatestBaileysVersion();
+
+  wppClient = makeWASocket({
+    auth: state,
+    version,
+    printQRInTerminal: false,
+    markOnlineOnConnect: false,
+    browser: ["Gatti Bot", "Chrome", "1.0.0"],
   });
 
-  wppClient.on("qr", (qr) => {
-    console.log("Escaneie o QR code:");
-    qrcode.generate(qr, { small: true });
-  });
+  wppClient.ev.on("creds.update", saveCreds);
 
-  wppClient.on("ready", () => {
-    console.log("✅ WhatsApp conectado!");
-  });
+  wppClient.ev.on("connection.update", (update) => {
+    const { connection, qr, lastDisconnect } = update;
 
-  wppClient.on("disconnected", () => {
-    console.log("WPP desconectado, reconectando...");
-    setTimeout(initWpp, 3000);
+    if (qr) {
+      console.log("Escaneie o QR code:");
+      qrcode.generate(qr, { small: true });
+    }
+
+    if (connection === "open") {
+      wppReady = true;
+      console.log("✅ WhatsApp conectado!");
+    }
+
+    if (connection === "close") {
+      wppReady = false;
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      console.log("WPP desconectado, reconectando...");
+
+      if (shouldReconnect) {
+        setTimeout(initWpp, 3000);
+      } else {
+        console.log("Sessão desconectada (logout). Escaneie o QR novamente.");
+      }
+    }
   });
 
   // Listener para detectar respostas no grupo
-  wppClient.on("message", async (msg) => {
-    const chat = await msg.getChat();
-    if (chat.id._serialized === WPP_CHAT_ID) {
-      console.log(`📨 Resposta recebida: "${msg.body}"`);
+  wppClient.ev.on("messages.upsert", ({ messages, type }) => {
+    if (type !== "notify") return;
+
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue;
+      if (msg.key.remoteJid !== WPP_CHAT_ID) continue;
+
+      const body = extractMessageText(msg.message);
+
+      console.log(`📨 Resposta recebida: "${body}"`);
       aguardandoResposta = true;
       ultimasNotificacoes.clear();
       console.log("⏸️  Pausando reenvios de notificação (alguém respondeu)\n");
     }
   });
-
-  await wppClient.initialize();
 }
 
 async function enviarNotificacaoWpp(diff) {
-  if (!wppClient || !wppClient.info) return console.log("WPP não pronto ainda");
+  if (!wppClient || !wppReady) return console.log("WPP não pronto ainda");
 
   // Se alguém respondeu, pausa temporariamente os reenvios
   if (aguardandoResposta) {
@@ -116,7 +143,7 @@ async function enviarNotificacaoWpp(diff) {
   }
 
   try {
-    await wppClient.sendMessage(WPP_CHAT_ID, msg);
+    await wppClient.sendMessage(WPP_CHAT_ID, { text: msg });
     console.log("📱 Notificação WPP enviada!");
     ultimasNotificacoes.set(notifKey, Date.now());
     aguardandoResposta = false; // Reset para permitir próximas notificações
