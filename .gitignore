@@ -1,6 +1,9 @@
 .wwebjs*
 node_modules
 
+# Baileys auth directories
+.baileys_auth*
+
 # Logs
 logs
 *.log
