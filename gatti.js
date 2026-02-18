@@ -24,7 +24,19 @@ let aguardandoResposta = false; // Flag para pausar reenvios
 
 async function initWpp() {
   wppClient = new Client({
-    authStrategy: new LocalAuth(), // Salva sessão em .wwebjs_auth/
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--disable-gpu",
+      ],
+    },
   });
 
   wppClient.on("qr", (qr) => {
