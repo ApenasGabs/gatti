@@ -122,6 +122,10 @@ async function checkForUpdates() {
   // Pega mensagem do último commit antes do pull
   const lastCommitMsg = await runGit(["log", "-1", "--pretty=%s", "@{u}"]);
 
+  // Descarta mudanças locais para evitar conflitos (ex: snapshot.json)
+  console.log("🔄 Descartando mudanças locais...");
+  await runGit(["restore", "."]);
+
   await runGit(["pull", "--ff-only"]);
   const lockAfter = await readPackageLock();
 

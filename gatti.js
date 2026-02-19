@@ -59,7 +59,9 @@ function montarMensagemStatus() {
   msg += `• Última conferência: ${formatarDataHora(ultimaConferencia)}\n`;
 
   if (ultimoDocumento) {
-    msg += `• Último documento: ${ultimoDocumento.title}\n`;
+    // Normaliza o título para UTF-8 correto
+    const titulo = ultimoDocumento.title.normalize("NFC");
+    msg += `• Último documento: ${titulo}\n`;
     msg += `• Data do documento: ${ultimoDocumento.date || "não informada"}\n`;
     msg += `• Link: ${ultimoDocumento.href}\n`;
   } else {
@@ -321,7 +323,8 @@ function extractPublicacoes(html) {
 
     const anchorClone = anchor.clone();
     anchorClone.find("span").remove();
-    const title = normalizeText(anchorClone.text());
+    // Normaliza UTF-8 ao extrair texto do HTML
+    const title = normalizeText(anchorClone.text()).normalize("NFC");
 
     if (!href || !title) return;
 

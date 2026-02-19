@@ -50,7 +50,8 @@ async function buscarMotivoNao() {
   try {
     const response = await fetch("https://naas.daniilmira.com/no");
     const data = await response.json();
-    return data.reason || "Não tenho um motivo específico agora.";
+    const reason = data.reason || "Não tenho um motivo específico agora.";
+    return reason.toLowerCase();
   } catch (err) {
     console.error("Erro ao buscar motivo:", err.message);
     return "Não consegui obter o motivo agora.";
