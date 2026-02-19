@@ -3,6 +3,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
@@ -10,12 +11,18 @@ import qrcode from "qrcode-terminal";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth_zapsons");
+const RESTART_SIGNAL_PATH = path.join(
+  __dirname,
+  "data",
+  "restart-pending.json",
+);
 
 // Chat ID do grupo onde vai responder
 const WPP_CHAT_ID = "120363132077830172@g.us";
 
 let wppClient = null;
 let wppReady = false;
+let reinicioEmAndamento = false;
 
 function extractMessageText(message) {
   return (
@@ -52,6 +59,33 @@ async function traduzirParaPortugues(texto) {
   } catch (err) {
     console.error("Erro ao traduzir:", err.message);
     return texto;
+  }
+}
+
+async function loadRestartSignal() {
+  try {
+    const raw = await readFile(RESTART_SIGNAL_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function processarSinalReinicio() {
+  if (reinicioEmAndamento) return;
+
+  const signal = await loadRestartSignal();
+  if (!signal) return;
+
+  reinicioEmAndamento = true;
+
+  try {
+    await unlink(RESTART_SIGNAL_PATH).catch(() => null);
+    console.log("🔁 Reinício solicitado pelo updater. Encerrando processo...");
+    setTimeout(() => process.exit(0), 1000);
+  } catch (err) {
+    reinicioEmAndamento = false;
+    console.error("Erro ao processar sinal de reinício:", err.message);
   }
 }
 
@@ -151,6 +185,7 @@ async function initWpp() {
 
 async function main() {
   await initWpp();
+  setInterval(processarSinalReinicio, 15 * 1000); // 15s
 }
 
 main().catch((error) => {
