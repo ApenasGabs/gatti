@@ -4,7 +4,7 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
 import * as cheerio from "cheerio";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
@@ -17,6 +17,11 @@ const SNAPSHOT_PATH = path.join(
   "data",
   "gatti-publicacoes.snapshot.json",
 );
+const RESTART_SIGNAL_PATH = path.join(
+  __dirname,
+  "data",
+  "restart-pending.json",
+);
 const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth");
 
 // CONFIG WPP: Chat ID do grupo para notificações
@@ -26,6 +31,7 @@ let wppClient = null;
 let wppReady = false;
 let ultimasNotificacoes = new Map(); // Rastreia notificações enviadas
 let aguardandoResposta = false; // Flag para pausar reenvios
+let reinicioEmAndamento = false;
 
 function extractMessageText(message) {
   return (
@@ -35,6 +41,42 @@ function extractMessageText(message) {
     message?.videoMessage?.caption ??
     ""
   );
+}
+
+async function loadRestartSignal() {
+  try {
+    const raw = await readFile(RESTART_SIGNAL_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function processarSinalReinicio() {
+  if (!wppClient || !wppReady || reinicioEmAndamento) return;
+
+  const signal = await loadRestartSignal();
+  if (!signal) return;
+
+  reinicioEmAndamento = true;
+  const motivo = signal.reason || "Atualização detectada";
+
+  try {
+    await wppClient.sendMessage(WPP_CHAT_ID, {
+      text: `⚠️ Atualização detectada (${motivo}). Vou ficar fora do ar por instantes para reiniciar.`,
+    });
+    await wppClient.sendMessage(WPP_CHAT_ID, {
+      text: "🔁 Reiniciando agora...",
+    });
+
+    await unlink(RESTART_SIGNAL_PATH).catch(() => null);
+
+    console.log("🔁 Reinício solicitado pelo updater. Encerrando processo...");
+    setTimeout(() => process.exit(0), 1000);
+  } catch (err) {
+    reinicioEmAndamento = false;
+    console.error("Erro ao processar sinal de reinício:", err.message);
+  }
 }
 
 async function initWpp() {
@@ -295,6 +337,7 @@ async function scrapSite() {
 // Inicializa tudo
 async function main() {
   await initWpp();
+  setInterval(processarSinalReinicio, 15 * 1000); // 15s
   // Roda uma vez imediato, depois em loop (ajuste intervalo)
   setInterval(scrapSite, 5 * 60 * 1000); // 5min
   await scrapSite(); // Primeira execução
