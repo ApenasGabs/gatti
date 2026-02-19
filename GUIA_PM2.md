@@ -161,39 +161,51 @@ pm2 --version
 
 ### 3.3. Criando o Arquivo de Configuração (Recomendado)
 
-Criar um arquivo de configuração facilita o gerenciamento de múltiplos processos. Crie um arquivo `ecosystem.config.js` na raiz do projeto:
+Criar um arquivo de configuração facilita o gerenciamento de múltiplos processos. O projeto já possui um arquivo `ecosystem.config.cjs` na raiz com a seguinte estrutura:
 
 ```javascript
 module.exports = {
   apps: [
     {
-      name: "zapsons",
-      script: "./zapsons.js",
-      instances: 1,
-      autorestart: true,
+      name: "gatti-bot",
+      script: "./gatti.js",
+      cwd: __dirname,
+      interpreter: "node",
       watch: false,
-      max_memory_restart: "500M",
-      error_file: "./logs/zapsons-error.log",
-      out_file: "./logs/zapsons-out.log",
-      time: true,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
       env: {
-        NODE_ENV: "production"
-      }
+        NODE_ENV: "production",
+      },
     },
     {
-      name: "gatti",
-      script: "./gatti.js",
-      instances: 1,
-      autorestart: true,
+      name: "meme-bot",
+      script: "./zapsons.js",
+      cwd: __dirname,
+      interpreter: "node",
       watch: false,
-      max_memory_restart: "500M",
-      error_file: "./logs/gatti-error.log",
-      out_file: "./logs/gatti-out.log",
-      time: true,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
       env: {
-        NODE_ENV: "production"
-      }
-    }
+        NODE_ENV: "production",
+      },
+    },
+    {
+      name: "gatti-updater",
+      script: "./updater.js",
+      cwd: __dirname,
+      interpreter: "node",
+      watch: false,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      env: {
+        NODE_ENV: "production",
+        UPDATE_CHECK_INTERVAL_MS: "300000",
+      },
+    },
   ]
 };
 ```
@@ -201,13 +213,24 @@ module.exports = {
 **Explicação das opções:**
 
 - `name`: Nome identificador do processo
+  - `gatti-bot`: Bot de monitoramento de publicações
+  - `meme-bot`: Bot Zapsons de respostas automáticas
+  - `gatti-updater`: Script de atualização automática
 - `script`: Caminho do arquivo a ser executado
-- `instances`: Número de instâncias (1 para bots)
-- `autorestart`: Reinicia automaticamente se o processo falhar
+- `cwd`: Diretório de trabalho (diretório do projeto)
+- `interpreter`: Interpretador a ser usado (node)
 - `watch`: Monitora mudanças nos arquivos (desabilitado para produção)
-- `max_memory_restart`: Reinicia se ultrapassar o limite de memória
-- `error_file` / `out_file`: Caminhos para os arquivos de log
-- `time`: Adiciona timestamp nos logs
+- `autorestart`: Reinicia automaticamente se o processo falhar
+- `max_restarts`: Número máximo de reinicializações (10 tentativas)
+- `restart_delay`: Delay entre reinicializações (2 segundos)
+- `env`: Variáveis de ambiente específicas do processo
+
+**Nota:** Se você quiser adicionar logging personalizado, pode adicionar estas opções em cada app:
+```javascript
+error_file: "./logs/gatti-bot-error.log",
+out_file: "./logs/gatti-bot-out.log",
+time: true,
+```
 
 ### 3.4. Criando o Diretório de Logs
 
@@ -224,18 +247,21 @@ mkdir -p logs
 #### Usando o arquivo de configuração (Recomendado):
 
 ```bash
-# Inicia todos os processos definidos no ecosystem.config.js
-pm2 start ecosystem.config.js
+# Inicia todos os processos definidos no ecosystem.config.cjs
+pm2 start ecosystem.config.cjs
 ```
 
 #### Iniciando processos individuais:
 
 ```bash
-# Iniciar apenas o Zapsons
-pm2 start zapsons.js --name "zapsons"
+# Iniciar apenas o Zapsons (meme-bot)
+pm2 start zapsons.js --name "meme-bot"
 
-# Iniciar apenas o Gatti
-pm2 start gatti.js --name "gatti"
+# Iniciar apenas o Gatti (gatti-bot)
+pm2 start gatti.js --name "gatti-bot"
+
+# Iniciar o updater
+pm2 start updater.js --name "gatti-updater"
 ```
 
 ### 4.2. Verificando o Status dos Processos
@@ -252,12 +278,13 @@ pm2 list
 
 **Exemplo de saída:**
 ```
-┌────┬────────┬─────────────┬─────────┬─────────┬──────────┬────────┐
-│ id │ name   │ mode        │ ↺       │ status  │ cpu      │ memory │
-├────┼────────┼─────────────┼─────────┼─────────┼──────────┼────────┤
-│ 0  │ zapsons│ fork        │ 0       │ online  │ 0.3%     │ 45.2mb │
-│ 1  │ gatti  │ fork        │ 0       │ online  │ 0.5%     │ 52.1mb │
-└────┴────────┴─────────────┴─────────┴─────────┴──────────┴────────┘
+┌────┬───────────────┬─────────────┬─────────┬─────────┬──────────┬────────┐
+│ id │ name          │ mode        │ ↺       │ status  │ cpu      │ memory │
+├────┼───────────────┼─────────────┼─────────┼─────────┼──────────┼────────┤
+│ 0  │ gatti-bot     │ fork        │ 0       │ online  │ 0.5%     │ 52.1mb │
+│ 1  │ meme-bot      │ fork        │ 0       │ online  │ 0.3%     │ 45.2mb │
+│ 2  │ gatti-updater │ fork        │ 0       │ online  │ 0.1%     │ 35.5mb │
+└────┴───────────────┴─────────────┴─────────┴─────────┴──────────┴────────┘
 ```
 
 ### 4.3. Parando os Bots
@@ -267,8 +294,9 @@ pm2 list
 pm2 stop all
 
 # Parar um processo específico por nome
-pm2 stop zapsons
-pm2 stop gatti
+pm2 stop gatti-bot
+pm2 stop meme-bot
+pm2 stop gatti-updater
 
 # Parar um processo específico por ID
 pm2 stop 0
@@ -281,16 +309,18 @@ pm2 stop 0
 pm2 restart all
 
 # Reiniciar um processo específico
-pm2 restart zapsons
-pm2 restart gatti
+pm2 restart gatti-bot
+pm2 restart meme-bot
+pm2 restart gatti-updater
 ```
 
 ### 4.5. Removendo Processos do PM2
 
 ```bash
 # Remover um processo específico
-pm2 delete zapsons
-pm2 delete gatti
+pm2 delete gatti-bot
+pm2 delete meme-bot
+pm2 delete gatti-updater
 
 # Remover todos os processos
 pm2 delete all
@@ -305,8 +335,9 @@ pm2 delete all
 pm2 logs
 
 # Ver logs de um processo específico
-pm2 logs zapsons
-pm2 logs gatti
+pm2 logs gatti-bot
+pm2 logs meme-bot
+pm2 logs gatti-updater
 
 # Ver apenas os erros
 pm2 logs --err
@@ -360,7 +391,7 @@ Depois de iniciar todos os bots que você deseja que sejam gerenciados automatic
 
 ```bash
 # Inicie os processos primeiro
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Salve a configuração atual
 pm2 save
@@ -430,21 +461,21 @@ pm2 save
 #### Autenticação do WhatsApp
 - **Problema:** Se os bots perderem a autenticação, será necessário escanear o QR code novamente.
 - **Solução:** 
-  1. Pare o processo: `pm2 stop zapsons` (ou `gatti`)
+  1. Pare o processo: `pm2 stop meme-bot` (ou `gatti-bot`)
   2. Execute manualmente: `node zapsons.js`
   3. Escaneie o QR code
   4. Pare com `Ctrl + C`
-  5. Inicie novamente com PM2: `pm2 start zapsons`
+  5. Inicie novamente com PM2: `pm2 start meme-bot`
 
 #### Verificação de Erros
 Se um bot não estiver funcionando:
 
 ```bash
 # Ver descrição detalhada e últimos erros
-pm2 describe zapsons
+pm2 describe gatti-bot
 
 # Ver logs de erro
-pm2 logs zapsons --err --lines 50
+pm2 logs gatti-bot --err --lines 50
 ```
 
 #### Atualizando o Código
@@ -480,7 +511,7 @@ Para verificar o uso de CPU e memória:
 pm2 status
 ```
 
-Se um processo estiver usando muita memória, você pode configurar o `max_memory_restart` no `ecosystem.config.js`.
+Se um processo estiver usando muita memória, você pode configurar o `max_memory_restart` no `ecosystem.config.cjs`.
 
 #### Configurando ID do Grupo
 Para obter o ID do grupo correto:
@@ -527,7 +558,7 @@ pm2 restart <nome>
 
 # Se persistir, remover e iniciar novamente
 pm2 delete <nome>
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 ```
 
 ---

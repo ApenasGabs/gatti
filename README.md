@@ -88,7 +88,7 @@ O guia inclui:
 npm install -g pm2
 
 # Iniciar os bots
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Ver status
 pm2 status
@@ -104,7 +104,7 @@ pm2 save
 gatti/
 ├── zapsons.js              # Bot de respostas automáticas
 ├── gatti.js                # Bot de monitoramento de publicações
-├── ecosystem.config.js     # Configuração do PM2
+├── ecosystem.config.cjs     # Configuração do PM2
 ├── package.json            # Dependências do projeto
 ├── GUIA_PM2.md            # Guia de implantação com PM2
 ├── README.md              # Este arquivo
@@ -161,13 +161,13 @@ const TARGET_URL = "https://concursos.objetivas.com.br/informacoes/2568/";
 
 O bot já possui proteção contra spam (2 minutos de cooldown). Se persistir:
 - Verifique se não há múltiplas instâncias rodando
-- Reinicie o processo com `pm2 restart gatti`
+- Reinicie o processo com `pm2 restart gatti-bot`
 
 ### Bot não responde (Zapsons)
 
 1. Verifique se o `WPP_CHAT_ID` está correto
 2. Confirme que o bot está autenticado
-3. Verifique os logs: `pm2 logs zapsons`
+3. Verifique os logs: `pm2 logs meme-bot`
 
 ## 📞 Suporte
 
