@@ -3,6 +3,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
@@ -10,12 +11,18 @@ import qrcode from "qrcode-terminal";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth_zapsons");
+const RESTART_SIGNAL_PATH = path.join(
+  __dirname,
+  "data",
+  "restart-pending.json",
+);
 
 // Chat ID do grupo onde vai responder
 const WPP_CHAT_ID = "120363132077830172@g.us";
 
 let wppClient = null;
 let wppReady = false;
+let reinicioEmAndamento = false;
 
 function extractMessageText(message) {
   return (
@@ -52,6 +59,33 @@ async function traduzirParaPortugues(texto) {
   } catch (err) {
     console.error("Erro ao traduzir:", err.message);
     return texto;
+  }
+}
+
+async function loadRestartSignal() {
+  try {
+    const raw = await readFile(RESTART_SIGNAL_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function processarSinalReinicio() {
+  if (reinicioEmAndamento) return;
+
+  const signal = await loadRestartSignal();
+  if (!signal) return;
+
+  reinicioEmAndamento = true;
+
+  try {
+    await unlink(RESTART_SIGNAL_PATH).catch(() => null);
+    console.log("🔁 Reinício solicitado pelo updater. Encerrando processo...");
+    setTimeout(() => process.exit(0), 1000);
+  } catch (err) {
+    reinicioEmAndamento = false;
+    console.error("Erro ao processar sinal de reinício:", err.message);
   }
 }
 
@@ -106,51 +140,86 @@ async function initWpp() {
       const chatId = msg.key.remoteJid ?? "";
       const remetente = msg.key.participant || chatId;
       const body = extractMessageText(msg.message);
+      const bodyLower = body.toLowerCase();
+      const isGroup = chatId.endsWith("@g.us");
+      const isPrivate = !isGroup;
+      const isGrupoEspecifico = chatId === WPP_CHAT_ID;
+
+      // Ignora mensagens com "status"
+      if (bodyLower.includes("status")) {
+        console.log("⏭️  Mensagem contém 'status', ignorando...\n");
+        continue;
+      }
 
       // Log das infos do grupo/chat
       console.log("\n📨 Mensagem recebida:");
       console.log(`   De: ${chatId}`);
       console.log(`   Remetente: ${remetente}`);
       console.log(`   Chat ID: ${chatId}`);
-      console.log(`   É grupo: ${chatId.endsWith("@g.us")}`);
+      console.log(`   É grupo: ${isGroup}`);
+      console.log(`   Grupo específico: ${isGrupoEspecifico}`);
       console.log(`   Conteúdo: ${body}`);
       console.log(`   Horário: ${new Date().toLocaleString("pt-BR")}`);
 
-      // Responde apenas se for o grupo configurado
-      if (chatId === WPP_CHAT_ID) {
-        try {
-          if (!wppReady) {
-            console.log("⏳ Cliente ainda não está pronto para responder.");
-            continue;
-          }
+      // Cenário 1: Grupo específico - responde sempre
+      if (isGrupoEspecifico) {
+        console.log("📍 Grupo específico: respondendo...");
+        await responderComMotivo(chatId, msg);
+        continue;
+      }
 
-          console.log("🤖 Buscando motivo...");
-          const motivoOriginal = await buscarMotivoNao();
-          console.log(`📝 Motivo original: ${motivoOriginal}`);
+      // Cenário 2: Grupo aleatório - só responde se mencionar o bot
+      if (isGroup) {
+        const foiMencionado =
+          msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.some(
+            (jid) => jid === wppClient.user.id,
+          ) || false;
 
-          const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
-          console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
-
-          const resposta = `Não posso responder.\nMotivo: ${motivoTraduzido}`;
-
-          await wppClient.sendMessage(
-            chatId,
-            { text: resposta },
-            { quoted: msg },
-          );
-          console.log("✅ Resposta enviada\n");
-        } catch (err) {
-          console.error("❌ Erro ao responder:", err.message, "\n");
+        if (foiMencionado) {
+          console.log("🔔 Fui mencionado em grupo aleatório: respondendo...");
+          await responderComMotivo(chatId, msg);
+        } else {
+          console.log("⏭️  Grupo aleatório sem menção, ignorando...\n");
         }
-      } else {
-        console.log("⏭️  Ignoring message (group not configured)\n");
+        continue;
+      }
+
+      // Cenário 3: Privado - responde sempre
+      if (isPrivate) {
+        console.log("💬 Mensagem privada: respondendo...");
+        await responderComMotivo(chatId, msg);
+        continue;
       }
     }
   });
+
+  async function responderComMotivo(chatId, msg) {
+    try {
+      if (!wppReady) {
+        console.log("⏳ Cliente ainda não está pronto para responder.");
+        return;
+      }
+
+      console.log("🤖 Buscando motivo...");
+      const motivoOriginal = await buscarMotivoNao();
+      console.log(`📝 Motivo original: ${motivoOriginal}`);
+
+      const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
+      console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
+
+      const resposta = `Não posso responder, ${motivoTraduzido}`;
+
+      await wppClient.sendMessage(chatId, { text: resposta }, { quoted: msg });
+      console.log("✅ Resposta enviada\n");
+    } catch (err) {
+      console.error("❌ Erro ao responder:", err.message, "\n");
+    }
+  }
 }
 
 async function main() {
   await initWpp();
+  setInterval(processarSinalReinicio, 5 * 1000); // 5s
 }
 
 main().catch((error) => {

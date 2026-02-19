@@ -1,8 +1,12 @@
 .wwebjs*
+.baileys_auth/
+.baileys_auth_zapsons/
 node_modules
 
 # Baileys auth directories
 .baileys_auth*
+# Bot internal state
+data/restart-pending.json
 
 # Logs
 logs

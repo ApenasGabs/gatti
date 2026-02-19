@@ -4,7 +4,7 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
 import * as cheerio from "cheerio";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
@@ -17,6 +17,11 @@ const SNAPSHOT_PATH = path.join(
   "data",
   "gatti-publicacoes.snapshot.json",
 );
+const RESTART_SIGNAL_PATH = path.join(
+  __dirname,
+  "data",
+  "restart-pending.json",
+);
 const BAILEYS_AUTH_DIR = path.join(__dirname, ".baileys_auth");
 
 // CONFIG WPP: Chat ID do grupo para notificações
@@ -26,6 +31,9 @@ let wppClient = null;
 let wppReady = false;
 let ultimasNotificacoes = new Map(); // Rastreia notificações enviadas
 let aguardandoResposta = false; // Flag para pausar reenvios
+let reinicioEmAndamento = false;
+let ultimaConferencia = null;
+let ultimoDocumento = null;
 
 function extractMessageText(message) {
   return (
@@ -35,6 +43,85 @@ function extractMessageText(message) {
     message?.videoMessage?.caption ??
     ""
   );
+}
+
+function formatarDataHora(isoDate) {
+  if (!isoDate) return "ainda não realizada";
+  return new Date(isoDate).toLocaleString("pt-BR");
+}
+
+function montarMensagemStatus() {
+  if (!ultimaConferencia) {
+    return "📊 Status do monitoramento:\nAinda não houve conferência concluída.";
+  }
+
+  let msg = "📊 *Status do monitoramento*\n\n";
+  msg += `• Última conferência: ${formatarDataHora(ultimaConferencia)}\n`;
+
+  if (ultimoDocumento) {
+    msg += `• Último documento: ${ultimoDocumento.title}\n`;
+    msg += `• Data do documento: ${ultimoDocumento.date || "não informada"}\n`;
+    msg += `• Link: ${ultimoDocumento.href}\n`;
+  } else {
+    msg += "• Último documento: não encontrado\n";
+  }
+
+  return msg;
+}
+
+async function responderStatusWpp(chatId) {
+  if (!wppClient || !wppReady) {
+    console.log("WPP não pronto para responder status.");
+    return;
+  }
+
+  try {
+    await wppClient.sendMessage(chatId, { text: montarMensagemStatus() });
+    console.log("📊 Status enviado no grupo.");
+  } catch (err) {
+    console.error("Erro ao enviar status:", err.message);
+  }
+}
+
+async function loadRestartSignal() {
+  try {
+    const raw = await readFile(RESTART_SIGNAL_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function processarSinalReinicio() {
+  if (!wppClient || !wppReady || reinicioEmAndamento) return;
+
+  const signal = await loadRestartSignal();
+  if (!signal) return;
+
+  reinicioEmAndamento = true;
+  const motivo = signal.reason || "Atualização detectada";
+
+  console.log("🔔 Sinal de reinício detectado! Avisando grupo...");
+
+  try {
+    await wppClient.sendMessage(WPP_CHAT_ID, {
+      text: `⚠️ Atualização detectada (${motivo}). Vou ficar fora do ar por instantes para reiniciar.`,
+    });
+    console.log("✅ Primeira mensagem enviada no grupo.");
+
+    await wppClient.sendMessage(WPP_CHAT_ID, {
+      text: "🔁 Reiniciando agora...",
+    });
+    console.log("✅ Segunda mensagem enviada no grupo.");
+
+    await unlink(RESTART_SIGNAL_PATH).catch(() => null);
+
+    console.log("🔁 Reinício solicitado pelo updater. Encerrando processo...");
+    setTimeout(() => process.exit(0), 1000);
+  } catch (err) {
+    reinicioEmAndamento = false;
+    console.error("❌ Erro ao processar sinal de reinício:", err.message);
+  }
 }
 
 async function initWpp() {
@@ -79,7 +166,7 @@ async function initWpp() {
   });
 
   // Listener para detectar respostas no grupo
-  wppClient.ev.on("messages.upsert", ({ messages, type }) => {
+  wppClient.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
 
     for (const msg of messages) {
@@ -87,6 +174,11 @@ async function initWpp() {
       if (msg.key.remoteJid !== WPP_CHAT_ID) continue;
 
       const body = extractMessageText(msg.message);
+      const bodyLower = body.toLowerCase();
+
+      if (bodyLower.includes("status")) {
+        await responderStatusWpp(msg.key.remoteJid);
+      }
 
       console.log(`📨 Resposta recebida: "${body}"`);
       aguardandoResposta = true;
@@ -94,6 +186,18 @@ async function initWpp() {
       console.log("⏸️  Pausando reenvios de notificação (alguém respondeu)\n");
     }
   });
+}
+
+async function obterMembrosGrupo() {
+  if (!wppClient || !wppReady) return [];
+
+  try {
+    const groupMetadata = await wppClient.groupMetadata(WPP_CHAT_ID);
+    return groupMetadata.participants.map((p) => p.id);
+  } catch (err) {
+    console.error("Erro ao obter membros do grupo:", err.message);
+    return [];
+  }
 }
 
 async function enviarNotificacaoWpp(diff) {
@@ -143,8 +247,25 @@ async function enviarNotificacaoWpp(diff) {
   }
 
   try {
+    // Envia no grupo
     await wppClient.sendMessage(WPP_CHAT_ID, { text: msg });
-    console.log("📱 Notificação WPP enviada!");
+    console.log("📱 Notificação WPP enviada no grupo!");
+
+    // Envia no privado para cada membro
+    const membros = await obterMembrosGrupo();
+    console.log(
+      `📤 Enviando notificação privada para ${membros.length} membros...`,
+    );
+
+    for (const membroId of membros) {
+      try {
+        await wppClient.sendMessage(membroId, { text: msg });
+        console.log(`✅ Enviado para ${membroId}`);
+      } catch (err) {
+        console.error(`❌ Erro ao enviar para ${membroId}:`, err.message);
+      }
+    }
+
     ultimasNotificacoes.set(notifKey, Date.now());
     aguardandoResposta = false; // Reset para permitir próximas notificações
   } catch (err) {
@@ -266,6 +387,8 @@ async function scrapSite() {
 
   const body = await response.text();
   const currentSnapshot = extractPublicacoes(body);
+  ultimaConferencia = currentSnapshot.checkedAt;
+  ultimoDocumento = currentSnapshot.items.at(-1) ?? null;
 
   if (!currentSnapshot.total) {
     throw new Error("Nenhum item encontrado em #blocoPublicacoes.");
@@ -295,6 +418,7 @@ async function scrapSite() {
 // Inicializa tudo
 async function main() {
   await initWpp();
+  setInterval(processarSinalReinicio, 5 * 1000); // 5s (mais responsivo)
   // Roda uma vez imediato, depois em loop (ajuste intervalo)
   setInterval(scrapSite, 5 * 60 * 1000); // 5min
   await scrapSite(); // Primeira execução
