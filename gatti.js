@@ -63,10 +63,12 @@ function montarMensagemStatus() {
     const titulo = ultimoDocumento.title.normalize("NFC");
     msg += `• Último documento: ${titulo}\n`;
     msg += `• Data do documento: ${ultimoDocumento.date || "não informada"}\n`;
-    msg += `• Link: ${ultimoDocumento.href}\n`;
+    msg += `• Link PDF: ${ultimoDocumento.href}\n`;
   } else {
     msg += "• Último documento: não encontrado\n";
   }
+
+  msg += `\n🔗 Conferir todas publicações: ${TARGET_URL}`;
 
   return msg;
 }
