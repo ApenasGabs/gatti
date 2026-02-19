@@ -172,7 +172,7 @@ async function initWpp() {
           const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
           console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
 
-          const resposta = `Não posso responder.\nMotivo: ${motivoTraduzido}`;
+          const resposta = `Não posso responder, ${motivoTraduzido}`;
 
           await wppClient.sendMessage(
             chatId,

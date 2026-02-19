@@ -59,7 +59,23 @@ function parseAheadBehind(raw) {
   };
 }
 
+function isHorarioComercial() {
+  const now = new Date();
+  const brTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }),
+  );
+  const hour = brTime.getHours();
+  return hour >= 8 && hour < 22;
+}
+
 async function checkForUpdates() {
+  if (!isHorarioComercial()) {
+    console.log(
+      "⏰ Fora do horário de verificação (8h-22h BRT). Aguardando...",
+    );
+    return;
+  }
+
   console.log("🔎 Verificando atualizações remotas...");
 
   await runGit(["fetch", "--prune", "--quiet"]);
