@@ -101,13 +101,18 @@ async function processarSinalReinicio() {
   reinicioEmAndamento = true;
   const motivo = signal.reason || "Atualização detectada";
 
+  console.log("🔔 Sinal de reinício detectado! Avisando grupo...");
+
   try {
     await wppClient.sendMessage(WPP_CHAT_ID, {
       text: `⚠️ Atualização detectada (${motivo}). Vou ficar fora do ar por instantes para reiniciar.`,
     });
+    console.log("✅ Primeira mensagem enviada no grupo.");
+
     await wppClient.sendMessage(WPP_CHAT_ID, {
       text: "🔁 Reiniciando agora...",
     });
+    console.log("✅ Segunda mensagem enviada no grupo.");
 
     await unlink(RESTART_SIGNAL_PATH).catch(() => null);
 
@@ -115,7 +120,7 @@ async function processarSinalReinicio() {
     setTimeout(() => process.exit(0), 1000);
   } catch (err) {
     reinicioEmAndamento = false;
-    console.error("Erro ao processar sinal de reinício:", err.message);
+    console.error("❌ Erro ao processar sinal de reinício:", err.message);
   }
 }
 
@@ -183,6 +188,18 @@ async function initWpp() {
   });
 }
 
+async function obterMembrosGrupo() {
+  if (!wppClient || !wppReady) return [];
+
+  try {
+    const groupMetadata = await wppClient.groupMetadata(WPP_CHAT_ID);
+    return groupMetadata.participants.map((p) => p.id);
+  } catch (err) {
+    console.error("Erro ao obter membros do grupo:", err.message);
+    return [];
+  }
+}
+
 async function enviarNotificacaoWpp(diff) {
   if (!wppClient || !wppReady) return console.log("WPP não pronto ainda");
 
@@ -230,8 +247,25 @@ async function enviarNotificacaoWpp(diff) {
   }
 
   try {
+    // Envia no grupo
     await wppClient.sendMessage(WPP_CHAT_ID, { text: msg });
-    console.log("📱 Notificação WPP enviada!");
+    console.log("📱 Notificação WPP enviada no grupo!");
+
+    // Envia no privado para cada membro
+    const membros = await obterMembrosGrupo();
+    console.log(
+      `📤 Enviando notificação privada para ${membros.length} membros...`,
+    );
+
+    for (const membroId of membros) {
+      try {
+        await wppClient.sendMessage(membroId, { text: msg });
+        console.log(`✅ Enviado para ${membroId}`);
+      } catch (err) {
+        console.error(`❌ Erro ao enviar para ${membroId}:`, err.message);
+      }
+    }
+
     ultimasNotificacoes.set(notifKey, Date.now());
     aguardandoResposta = false; // Reset para permitir próximas notificações
   } catch (err) {
@@ -354,7 +388,7 @@ async function scrapSite() {
   const body = await response.text();
   const currentSnapshot = extractPublicacoes(body);
   ultimaConferencia = currentSnapshot.checkedAt;
-  ultimoDocumento = currentSnapshot.items[0] ?? null;
+  ultimoDocumento = currentSnapshot.items.at(-1) ?? null;
 
   if (!currentSnapshot.total) {
     throw new Error("Nenhum item encontrado em #blocoPublicacoes.");

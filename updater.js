@@ -102,6 +102,10 @@ async function checkForUpdates() {
   );
 
   const lockBefore = await readPackageLock();
+
+  // Pega mensagem do último commit antes do pull
+  const lastCommitMsg = await runGit(["log", "-1", "--pretty=%s", "@{u}"]);
+
   await runGit(["pull", "--ff-only"]);
   const lockAfter = await readPackageLock();
 
@@ -109,7 +113,7 @@ async function checkForUpdates() {
 
   const signalPayload = {
     createdAt: new Date().toISOString(),
-    reason: "nova versão disponível",
+    reason: `nova versão disponível: ${lastCommitMsg}`,
     upstream,
     ahead,
     behind,
@@ -125,9 +129,9 @@ async function checkForUpdates() {
     );
   }
 
-  // Aguarda 5s para gatti avisar no grupo, depois força restart via PM2
-  console.log("⏳ Aguardando 5s para bot avisar...");
-  await new Promise((resolve) => setTimeout(resolve, 5000));
+  // Aguarda 8s para gatti avisar no grupo, depois força restart via PM2
+  console.log("⏳ Aguardando 8s para bot avisar...");
+  await new Promise((resolve) => setTimeout(resolve, 8000));
 
   console.log("🔄 Forçando restart via PM2...");
   try {

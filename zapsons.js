@@ -140,6 +140,13 @@ async function initWpp() {
       const chatId = msg.key.remoteJid ?? "";
       const remetente = msg.key.participant || chatId;
       const body = extractMessageText(msg.message);
+      const bodyLower = body.toLowerCase();
+
+      // Ignora mensagens com "status"
+      if (bodyLower.includes("status")) {
+        console.log("⏭️  Mensagem contém 'status', ignorando...\n");
+        continue;
+      }
 
       // Log das infos do grupo/chat
       console.log("\n📨 Mensagem recebida:");
