@@ -260,14 +260,22 @@ async function enviarNotificacaoWpp(diff) {
     msg = "⚠️ *NOVOS ARQUIVOS em Publicações Gatti!*\n\n";
     msg += `+ *Novos (${conteudoAlerta.length})*:\n`;
     conteudoAlerta.forEach((item) => {
-      msg += `• ${item.date} - ${item.title}\n${item.href}\n\n`;
+      // Normaliza o texto para evitar problemas de encoding
+      const titulo = item.title.normalize("NFC");
+      const data = item.date;
+      msg += `• ${data} - ${titulo}\n${item.href}\n\n`;
     });
+    msg += `🔗 Confira em: ${TARGET_URL}`;
   } else if (tipoAlerta === "removidos") {
     msg = "⚠️ *ARQUIVOS REMOVIDOS de Publicações Gatti!*\n\n";
     msg += `- *Removidos (${conteudoAlerta.length})*:\n`;
     conteudoAlerta.forEach((item) => {
-      msg += `• ${item.date} - ${item.title}\n\n`;
+      // Normaliza o texto para evitar problemas de encoding
+      const titulo = item.title.normalize("NFC");
+      const data = item.date;
+      msg += `• ${data} - ${titulo}\n\n`;
     });
+    msg += `🔗 Confira em: ${TARGET_URL}`;
   }
 
   try {
