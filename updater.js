@@ -65,13 +65,13 @@ function isHorarioComercial() {
     now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }),
   );
   const hour = brTime.getHours();
-  return hour >= 8 && hour < 22;
+  return hour >= 7; // 8h até 23h59 (meia-noite)
 }
 
 async function checkForUpdates() {
   if (!isHorarioComercial()) {
     console.log(
-      "⏰ Fora do horário de verificação (8h-22h BRT). Aguardando...",
+      "⏰ Fora do horário de verificação (7h-00h BRT). Aguardando...",
     );
     return;
   }
