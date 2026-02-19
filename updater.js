@@ -124,6 +124,21 @@ async function checkForUpdates() {
       "⚠️ package-lock mudou. Rode npm install para garantir dependências atualizadas.",
     );
   }
+
+  // Aguarda 5s para gatti avisar no grupo, depois força restart via PM2
+  console.log("⏳ Aguardando 5s para bot avisar...");
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
+  console.log("🔄 Forçando restart via PM2...");
+  try {
+    await execFileAsync("pm2", ["restart", "ecosystem.config.cjs"], {
+      cwd: __dirname,
+    });
+    console.log("✅ PM2 restart executado com sucesso!");
+  } catch (err) {
+    console.error("⚠️ Erro ao executar pm2 restart:", err.message);
+    console.log("💡 Bots devem reiniciar via sinal normalmente.");
+  }
 }
 
 async function main() {
