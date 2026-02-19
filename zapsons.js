@@ -34,6 +34,18 @@ function extractMessageText(message) {
   );
 }
 
+function verificarMencao(msg) {
+  // Verifica se o bot foi mencionado na mensagem
+  const mentionedJid =
+    msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+  const botId = wppClient?.user?.id;
+
+  if (!botId) return false;
+
+  // Verifica se o ID do bot está na lista de menções
+  return mentionedJid.some((id) => id.includes(botId.split(":")[0]));
+}
+
 async function buscarMotivoNao() {
   try {
     const response = await fetch("https://naas.daniilmira.com/no");
@@ -86,6 +98,35 @@ async function processarSinalReinicio() {
   } catch (err) {
     reinicioEmAndamento = false;
     console.error("Erro ao processar sinal de reinício:", err.message);
+  }
+}
+
+async function responderComMotivo(chatId, msg) {
+  try {
+    if (!wppReady) {
+      console.log("⏳ Cliente ainda não está pronto para responder.");
+      return;
+    }
+
+    console.log("🤖 Buscando motivo...");
+    const motivoOriginal = await buscarMotivoNao();
+    console.log(`📝 Motivo original: ${motivoOriginal}`);
+
+    const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
+    console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
+
+    const resposta = `Não posso responder, ${motivoTraduzido}`;
+
+    await wppClient.sendMessage(chatId, { text: resposta }, { quoted: msg });
+    console.log("✅ Resposta enviada com sucesso\n");
+  } catch (err) {
+    console.error(
+      "❌ Erro ao responder:",
+      err.message,
+      "\nStack:",
+      err.stack,
+      "\n",
+    );
   }
 }
 
@@ -168,18 +209,13 @@ async function initWpp() {
         continue;
       }
 
-      // Cenário 2: Grupo aleatório - só responde se mencionar o bot
-      if (isGroup) {
-        const foiMencionado =
-          msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.some(
-            (jid) => jid === wppClient.user.id,
-          ) || false;
-
-        if (foiMencionado) {
-          console.log("🔔 Fui mencionado em grupo aleatório: respondendo...");
+      // Cenário 2: Grupo aleatório - responde APENAS quando mencionado
+      if (isGroup && !isGrupoEspecifico) {
+        if (verificarMencao(msg)) {
+          console.log("📍 Grupo aleatório (com menção): respondendo...");
           await responderComMotivo(chatId, msg);
         } else {
-          console.log("⏭️  Grupo aleatório sem menção, ignorando...\n");
+          console.log("📍 Grupo aleatório (sem menção): ignorando...\n");
         }
         continue;
       }
@@ -192,29 +228,6 @@ async function initWpp() {
       }
     }
   });
-
-  async function responderComMotivo(chatId, msg) {
-    try {
-      if (!wppReady) {
-        console.log("⏳ Cliente ainda não está pronto para responder.");
-        return;
-      }
-
-      console.log("🤖 Buscando motivo...");
-      const motivoOriginal = await buscarMotivoNao();
-      console.log(`📝 Motivo original: ${motivoOriginal}`);
-
-      const motivoTraduzido = await traduzirParaPortugues(motivoOriginal);
-      console.log(`🇧🇷 Motivo traduzido: ${motivoTraduzido}`);
-
-      const resposta = `Não posso responder, ${motivoTraduzido}`;
-
-      await wppClient.sendMessage(chatId, { text: resposta }, { quoted: msg });
-      console.log("✅ Resposta enviada\n");
-    } catch (err) {
-      console.error("❌ Erro ao responder:", err.message, "\n");
-    }
-  }
 }
 
 async function main() {
