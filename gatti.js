@@ -209,6 +209,31 @@ async function obterMembrosGrupo() {
 async function enviarNotificacaoWpp(diff) {
   if (!wppClient || !wppReady) return console.log("WPP não pronto ainda");
 
+  // DEFINE O TIPO DE ALERTA BASEADO NO QUE MUDOU
+  // Prioridade: Adições > Remoções > Alterações (apenas alterações = silencioso)
+  let tipoAlerta = null;
+  let conteudoAlerta = null;
+  let notifKey = null;
+
+  if (diff.added.length > 0) {
+    // CASO 1: NOVOS ARQUIVOS
+    tipoAlerta = "novos";
+    conteudoAlerta = diff.added;
+    notifKey = JSON.stringify(diff.added);
+  } else if (diff.removed.length > 0) {
+    // CASO 2: ARQUIVOS REMOVIDOS
+    tipoAlerta = "removidos";
+    conteudoAlerta = diff.removed;
+    notifKey = JSON.stringify(diff.removed);
+  } else if (diff.changed.length > 0) {
+    // CASO 3: APENAS ALTERAÇÕES (SEM ADIÇÃO/REMOÇÃO)
+    console.log("ℹ️  Arquivo alterado, mas sem adição/remoção. Sem alerta.");
+    return;
+  } else {
+    // Nenhuma mudança relevante
+    return;
+  }
+
   // Se alguém respondeu, pausa temporariamente os reenvios
   if (aguardandoResposta) {
     console.log(
@@ -216,9 +241,6 @@ async function enviarNotificacaoWpp(diff) {
     );
     return;
   }
-
-  // Cria chave única para essa notificação
-  const notifKey = JSON.stringify(diff);
 
   // Se já enviou essa notificação há menos de 2min, não reenvia
   if (ultimasNotificacoes.has(notifKey)) {
@@ -232,23 +254,19 @@ async function enviarNotificacaoWpp(diff) {
     }
   }
 
-  let msg = "⚠️ *ALTERAÇÕES em Publicações Gatti!*\n\n";
-  if (diff.added.length) {
-    msg += `+ *Novos (${diff.added.length})*:\n`;
-    diff.added.forEach((item) => {
+  // MONTA MENSAGEM DE ACORDO COM O TIPO DE ALERTA
+  let msg = "";
+  if (tipoAlerta === "novos") {
+    msg = "⚠️ *NOVOS ARQUIVOS em Publicações Gatti!*\n\n";
+    msg += `+ *Novos (${conteudoAlerta.length})*:\n`;
+    conteudoAlerta.forEach((item) => {
       msg += `• ${item.date} - ${item.title}\n${item.href}\n\n`;
     });
-  }
-  if (diff.removed.length) {
-    msg += `- *Removidos (${diff.removed.length})*:\n`;
-    diff.removed.forEach((item) => {
-      msg += `• ${item.date} - ${item.title}\n${item.href}\n\n`;
-    });
-  }
-  if (diff.changed.length) {
-    msg += `~ *Alterados (${diff.changed.length})*:\n`;
-    diff.changed.forEach((item) => {
-      msg += `• ${item.href}\n  Antes: ${item.before.date} | ${item.before.title}\n  Agora: ${item.after.date} | ${item.after.title}\n\n`;
+  } else if (tipoAlerta === "removidos") {
+    msg = "⚠️ *ARQUIVOS REMOVIDOS de Publicações Gatti!*\n\n";
+    msg += `- *Removidos (${conteudoAlerta.length})*:\n`;
+    conteudoAlerta.forEach((item) => {
+      msg += `• ${item.date} - ${item.title}\n\n`;
     });
   }
 
@@ -355,33 +373,61 @@ function printDiff(diff) {
     return false; // Sem mudanças
   }
 
-  console.log("⚠️ Alterações detectadas em Publicações:");
+  // Se não há adições, apenas registra as outras alterações (removidos/alterados)
+  // mas retorna false para não disparar alerta
+  if (!diff.added.length && (diff.removed.length || diff.changed.length)) {
+    console.log(
+      "ℹ️  Alterações detectadas (removidos/alterados), mas sem NOVOS arquivos:",
+    );
+
+    if (diff.removed.length) {
+      console.log(`\n- Removidos (${diff.removed.length}):`);
+      diff.removed.forEach((item) => {
+        console.log(`  • ${item.date} | ${item.title}`);
+      });
+    }
+
+    if (diff.changed.length) {
+      console.log(`\n~ Alterados (${diff.changed.length}):`);
+      diff.changed.forEach((item) => {
+        console.log(`  • ${item.href}`);
+        console.log(`    Antes: ${item.before.date} | ${item.before.title}`);
+        console.log(`    Agora: ${item.after.date} | ${item.after.title}`);
+      });
+    }
+
+    return false; // Sem NOVAS adições, então não alerta
+  }
+
+  // Se há adições, mostra E alerta
+  console.log("✅ NOVOS ARQUIVOS detectados em Publicações:");
 
   if (diff.added.length) {
     console.log(`\n+ Novos (${diff.added.length}):`);
     diff.added.forEach((item) => {
-      console.log(`- ${item.date} | ${item.title}`);
-      console.log(`  ${item.href}`);
+      console.log(`  • ${item.date} | ${item.title}`);
+      console.log(`    ${item.href}`);
     });
   }
 
+  // Mostra também outras alterações (se houver)
   if (diff.removed.length) {
     console.log(`\n- Removidos (${diff.removed.length}):`);
     diff.removed.forEach((item) => {
-      console.log(`- ${item.date} | ${item.title}`);
-      console.log(`  ${item.href}`);
+      console.log(`  • ${item.date} | ${item.title}`);
     });
   }
 
   if (diff.changed.length) {
     console.log(`\n~ Alterados (${diff.changed.length}):`);
     diff.changed.forEach((item) => {
-      console.log(`- ${item.href}`);
-      console.log(`  Antes: ${item.before.date} | ${item.before.title}`);
-      console.log(`  Agora: ${item.after.date} | ${item.after.title}`);
+      console.log(`  • ${item.href}`);
+      console.log(`    Antes: ${item.before.date} | ${item.before.title}`);
+      console.log(`    Agora: ${item.after.date} | ${item.after.title}`);
     });
   }
-  return true; // Tem mudanças
+
+  return true; // Tem NOVAS adições, então alerta
 }
 
 async function scrapSite() {
