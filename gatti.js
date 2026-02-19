@@ -171,19 +171,25 @@ async function initWpp() {
 
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue;
-      if (msg.key.remoteJid !== WPP_CHAT_ID) continue;
 
+      const chatId = msg.key.remoteJid ?? "";
       const body = extractMessageText(msg.message);
       const bodyLower = body.toLowerCase();
 
+      // Responde com status se mencionarem "status" em qualquer lugar
       if (bodyLower.includes("status")) {
-        await responderStatusWpp(msg.key.remoteJid);
+        await responderStatusWpp(chatId);
       }
 
-      console.log(`📨 Resposta recebida: "${body}"`);
-      aguardandoResposta = true;
-      ultimasNotificacoes.clear();
-      console.log("⏸️  Pausando reenvios de notificação (alguém respondeu)\n");
+      // Se for só no grupo específico, registra a resposta e pausa reenvios
+      if (chatId === WPP_CHAT_ID) {
+        console.log(`📨 Resposta recebida: "${body}"`);
+        aguardandoResposta = true;
+        ultimasNotificacoes.clear();
+        console.log(
+          "⏸️  Pausando reenvios de notificação (alguém respondeu)\n",
+        );
+      }
     }
   });
 }
