@@ -145,9 +145,9 @@ async function checkForUpdates() {
     );
   }
 
-  // Aguarda 8s para gatti avisar no grupo, depois força restart via PM2
-  console.log("⏳ Aguardando 8s para bot avisar...");
-  await new Promise((resolve) => setTimeout(resolve, 8000));
+  // Aguarda 20s para gatti avisar no grupo, depois força restart via PM2
+  console.log("⏳ Aguardando 20s para bot avisar...");
+  await new Promise((resolve) => setTimeout(resolve, 20000));
 
   console.log("🔄 Forçando restart via PM2...");
   try {

@@ -192,7 +192,7 @@ async function initWpp() {
 
 async function main() {
   await initWpp();
-  setInterval(processarSinalReinicio, 15 * 1000); // 15s
+  setInterval(processarSinalReinicio, 5 * 1000); // 5s
 }
 
 main().catch((error) => {

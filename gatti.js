@@ -418,7 +418,7 @@ async function scrapSite() {
 // Inicializa tudo
 async function main() {
   await initWpp();
-  setInterval(processarSinalReinicio, 15 * 1000); // 15s
+  setInterval(processarSinalReinicio, 5 * 1000); // 5s (mais responsivo)
   // Roda uma vez imediato, depois em loop (ajuste intervalo)
   setInterval(scrapSite, 5 * 60 * 1000); // 5min
   await scrapSite(); // Primeira execução
