@@ -32,6 +32,8 @@ let wppReady = false;
 let ultimasNotificacoes = new Map(); // Rastreia notificações enviadas
 let aguardandoResposta = false; // Flag para pausar reenvios
 let reinicioEmAndamento = false;
+let ultimaConferencia = null;
+let ultimoDocumento = null;
 
 function extractMessageText(message) {
   return (
@@ -41,6 +43,44 @@ function extractMessageText(message) {
     message?.videoMessage?.caption ??
     ""
   );
+}
+
+function formatarDataHora(isoDate) {
+  if (!isoDate) return "ainda não realizada";
+  return new Date(isoDate).toLocaleString("pt-BR");
+}
+
+function montarMensagemStatus() {
+  if (!ultimaConferencia) {
+    return "📊 Status do monitoramento:\nAinda não houve conferência concluída.";
+  }
+
+  let msg = "📊 *Status do monitoramento*\n\n";
+  msg += `• Última conferência: ${formatarDataHora(ultimaConferencia)}\n`;
+
+  if (ultimoDocumento) {
+    msg += `• Último documento: ${ultimoDocumento.title}\n`;
+    msg += `• Data do documento: ${ultimoDocumento.date || "não informada"}\n`;
+    msg += `• Link: ${ultimoDocumento.href}\n`;
+  } else {
+    msg += "• Último documento: não encontrado\n";
+  }
+
+  return msg;
+}
+
+async function responderStatusWpp(chatId) {
+  if (!wppClient || !wppReady) {
+    console.log("WPP não pronto para responder status.");
+    return;
+  }
+
+  try {
+    await wppClient.sendMessage(chatId, { text: montarMensagemStatus() });
+    console.log("📊 Status enviado no grupo.");
+  } catch (err) {
+    console.error("Erro ao enviar status:", err.message);
+  }
 }
 
 async function loadRestartSignal() {
@@ -121,7 +161,7 @@ async function initWpp() {
   });
 
   // Listener para detectar respostas no grupo
-  wppClient.ev.on("messages.upsert", ({ messages, type }) => {
+  wppClient.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
 
     for (const msg of messages) {
@@ -129,6 +169,11 @@ async function initWpp() {
       if (msg.key.remoteJid !== WPP_CHAT_ID) continue;
 
       const body = extractMessageText(msg.message);
+      const bodyLower = body.toLowerCase();
+
+      if (bodyLower.includes("status")) {
+        await responderStatusWpp(msg.key.remoteJid);
+      }
 
       console.log(`📨 Resposta recebida: "${body}"`);
       aguardandoResposta = true;
@@ -308,6 +353,8 @@ async function scrapSite() {
 
   const body = await response.text();
   const currentSnapshot = extractPublicacoes(body);
+  ultimaConferencia = currentSnapshot.checkedAt;
+  ultimoDocumento = currentSnapshot.items[0] ?? null;
 
   if (!currentSnapshot.total) {
     throw new Error("Nenhum item encontrado em #blocoPublicacoes.");
