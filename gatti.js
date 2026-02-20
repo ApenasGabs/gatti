@@ -472,11 +472,18 @@ async function scrapSite() {
   const diff = compareSnapshots(previousSnapshot, currentSnapshot);
   const temMudancas = printDiff(diff);
 
-  await saveSnapshot(currentSnapshot);
-  console.log(`\nSnapshot atualizado: ${SNAPSHOT_PATH}`);
-
   if (temMudancas) {
     await enviarNotificacaoWpp(diff);
+  }
+
+  // Atualiza o snapshot apenas se houver mudanças significativas (adições ou remoções)
+  if (diff.added.length > 0 || diff.removed.length > 0) {
+    await saveSnapshot(currentSnapshot);
+    console.log(`\nSnapshot atualizado: ${SNAPSHOT_PATH}`);
+  } else {
+    console.log(
+      "Nenhuma mudança significativa detectada. Snapshot não atualizado.",
+    );
   }
 }
 
