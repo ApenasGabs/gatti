@@ -229,6 +229,25 @@ async function initWpp() {
       }
     }
   });
+
+  // Listener para eventos de digitação e gravação de áudio
+  wppClient.ev.on("presence.update", async (presence) => {
+    const { id, presences } = presence;
+
+    if (!presences || !wppReady) return;
+
+    for (const [participant, data] of Object.entries(presences)) {
+      if (data.lastKnownPresence === "composing") {
+        // Envia emoji de olho quando alguém está digitando
+        console.log(`👀 ${participant} está digitando...`);
+        await wppClient.sendMessage(id, { text: "👀" });
+      } else if (data.lastKnownPresence === "recording") {
+        // Envia emoji de orelha quando alguém está gravando áudio
+        console.log(`👂 ${participant} está gravando áudio...`);
+        await wppClient.sendMessage(id, { text: "👂" });
+      }
+    }
+  });
 }
 
 async function main() {
